@@ -28,7 +28,7 @@
 static bool useA1200LowPassFilter;
 static int8_t emptySample[MAX_SAMPLE_LENGTH*2];
 static int32_t randSeed = INITIAL_DITHER_SEED;
-static double *dMixBufferL, *dMixBufferR, dPrngStateL, dPrngStateR, dSideFactor, dPeriodToDeltaDiv, dMixNormalize;
+static double *dMixBuffer1, *dMixBuffer2, *dMixBuffer3, *dMixBuffer4, dPrngState1, dPrngState2, dPrngState3, dPrngState4, dSideFactor, dPeriodToDeltaDiv, dMixNormalize;
 
 // globalized
 audio_t audio;
@@ -89,7 +89,7 @@ static double my_cos(double x)
 
 typedef struct rcFilter_t
 {
-	double tmp[2], c1, c2;
+	double tmp[4], c1, c2;
 } rcFilter_t;
 
 static rcFilter_t filterLoA1200, filterHiA1200;
@@ -118,6 +118,14 @@ static void RCLowPassFilterStereo(rcFilter_t *f, const double *in, double *out)
 	// right channel
 	f->tmp[1] = (f->c1 * in[1]) + (f->c2 * f->tmp[1]);
 	out[1] = f->tmp[1];
+
+	// left channel
+	f->tmp[2] = (f->c1 * in[2]) + (f->c2 * f->tmp[2]);
+	out[2] = f->tmp[2];
+
+	// right channel
+	f->tmp[3] = (f->c1 * in[3]) + (f->c2 * f->tmp[3]);
+	out[3] = f->tmp[3];
 }
 
 static void RCHighPassFilterStereo(rcFilter_t *f, const double *in, double *out)
@@ -129,6 +137,14 @@ static void RCHighPassFilterStereo(rcFilter_t *f, const double *in, double *out)
 	// right channel
 	f->tmp[1] = (f->c1 * in[1]) + (f->c2 * f->tmp[1]);
 	out[1] = in[1] - f->tmp[1];
+
+	// left channel
+	f->tmp[2] = (f->c1 * in[2]) + (f->c2 * f->tmp[2]);
+	out[2] = in[2] - f->tmp[2];
+
+	// right channel
+	f->tmp[3] = (f->c1 * in[3]) + (f->c2 * f->tmp[3]);
+	out[3] = in[3] - f->tmp[3];
 }
 
 // -----------------------------------------------
@@ -446,12 +462,14 @@ static inline void nextSample(paulaVoice_t *v, blep_t *b)
 	v->sampleCounter--;
 }
 
-static void paulaGenerateSamples(double *dOutL, double *dOutR, int32_t numSamples)
+static void paulaGenerateSamples(double *dOut1, double *dOut2, double *dOut3, double *dOut4, int32_t numSamples)
 {
-	double *dMixBufSelect[PAULA_VOICES] = { dOutL, dOutR, dOutR, dOutL };
+	double *dMixBufSelect[PAULA_VOICES] = { dOut1, dOut2, dOut3, dOut4 };
 
-	memset(dOutL, 0, numSamples * sizeof (double));
-	memset(dOutR, 0, numSamples * sizeof (double));
+	memset(dOut1, 0, numSamples * sizeof (double));
+	memset(dOut2, 0, numSamples * sizeof (double));
+	memset(dOut3, 0, numSamples * sizeof (double));
+	memset(dOut4, 0, numSamples * sizeof (double));
 
 	paulaVoice_t *v = paula;
 	blep_t *b = blep;
@@ -489,8 +507,10 @@ static void paulaGenerateSamples(double *dOutL, double *dOutR, int32_t numSample
 void resetAudioDithering(void)
 {
 	randSeed = INITIAL_DITHER_SEED;
-	dPrngStateL = 0.0;
-	dPrngStateR = 0.0;
+	dPrngState1 = 0.0;
+	dPrngState2 = 0.0;
+	dPrngState3 = 0.0;
+	dPrngState4 = 0.0;
 }
 
 static inline int32_t random32(void)
@@ -505,69 +525,110 @@ static inline int32_t random32(void)
 ** https://www.musicdsp.org/en/latest/Filters/231-hiqh-quality-2-decimators.html
 */
 
-static double R1_L, R2_L, R3_L, R4_L, R5_L, R6_L, R7_L, R8_L, R9_L;
-static double R1_R, R2_R, R3_R, R4_R, R5_R, R6_R, R7_R, R8_R, R9_R;
+static double R1_1, R2_1, R3_1, R4_1, R5_1, R6_1, R7_1, R8_1, R9_1;
+static double R1_2, R2_2, R3_2, R4_2, R5_2, R6_2, R7_2, R8_2, R9_2;
+static double R1_3, R2_3, R3_3, R4_3, R5_3, R6_3, R7_3, R8_3, R9_3;
+static double R1_4, R2_4, R3_4, R4_4, R5_4, R6_4, R7_4, R8_4, R9_4;
 
 void clearMixerDownsamplerStates(void)
 {
-	R1_L = R2_L = R3_L = R4_L = R5_L = R6_L = R7_L = R8_L = R9_L = 0.0;
-	R1_R = R2_R = R3_R = R4_R = R5_R = R6_R = R7_R = R8_R = R9_R = 0.0;
+	R1_1 = R2_1 = R3_1 = R4_1 = R5_1 = R6_1 = R7_1 = R8_1 = R9_1 = 0.0;
+	R1_2 = R2_2 = R3_2 = R4_2 = R5_2 = R6_2 = R7_2 = R8_2 = R9_2 = 0.0;
+	R1_3 = R2_3 = R3_3 = R4_3 = R5_3 = R6_3 = R7_3 = R8_3 = R9_3 = 0.0;
+	R1_4 = R2_4 = R3_4 = R4_4 = R5_4 = R6_4 = R7_4 = R8_4 = R9_4 = 0.0;
 }
 
-static double decimate2x_L(double x0, double x1)
-{
-	const double h0 = 8192.0 / 16384.0;
-	const double h1 = 5042.0 / 16384.0;
-	const double h3 = -1277.0 / 16384.0;
-	const double h5 = 429.0 / 16384.0;
-	const double h7 = -116.0 / 16384.0;
-	const double h9 = 18.0 / 16384.0;
+static const double h0 = 8192.0 / 16384.0;
+static const double h1 = 5042.0 / 16384.0;
+static const double h3 = -1277.0 / 16384.0;
+static const double h5 = 429.0 / 16384.0;
+static const double h7 = -116.0 / 16384.0;
+static const double h9 = 18.0 / 16384.0;
 
+static double decimate2x_1(double x0, double x1)
+{
 	double h9x0 = h9 * x0;
 	double h7x0 = h7 * x0;
 	double h5x0 = h5 * x0;
 	double h3x0 = h3 * x0;
 	double h1x0 = h1 * x0;
-	double R10 = R9_L + h9x0;
+	double R10 = R9_1 + h9x0;
 
-	R9_L = R8_L + h7x0;
-	R8_L = R7_L + h5x0;
-	R7_L = R6_L + h3x0;
-	R6_L = R5_L + h1x0;
-	R5_L = R4_L + h1x0 + h0 * x1;
-	R4_L = R3_L + h3x0;
-	R3_L = R2_L + h5x0;
-	R2_L = R1_L + h7x0;
-	R1_L = h9x0;
+	R9_1 = R8_1 + h7x0;
+	R8_1 = R7_1 + h5x0;
+	R7_1 = R6_1 + h3x0;
+	R6_1 = R5_1 + h1x0;
+	R5_1 = R4_1 + h1x0 + h0 * x1;
+	R4_1 = R3_1 + h3x0;
+	R3_1 = R2_1 + h5x0;
+	R2_1 = R1_1 + h7x0;
+	R1_1 = h9x0;
 
 	return R10;
 }
 
-static double decimate2x_R(double x0, double x1)
+static double decimate2x_2(double x0, double x1)
 {
-	const double h0 = 8192.0 / 16384.0;
-	const double h1 = 5042.0 / 16384.0;
-	const double h3 = -1277.0 / 16384.0;
-	const double h5 = 429.0 / 16384.0;
-	const double h7 = -116.0 / 16384.0;
-	const double h9 = 18.0 / 16384.0;
-
 	double h9x0 = h9 * x0;
 	double h7x0 = h7 * x0;
 	double h5x0 = h5 * x0;
 	double h3x0 = h3 * x0;
 	double h1x0 = h1 * x0;
-	double R10 = R9_R + h9x0;
+	double R10 = R9_2 + h9x0;
 
-	R9_R = R8_R + h7x0;
-	R8_R = R7_R + h5x0;
-	R7_R = R6_R + h3x0;
-	R6_R = R5_R + h1x0;
-	R5_R = R4_R + h1x0 + h0 * x1;
-	R4_R = R3_R + h3x0;
-	R3_R = R2_R + h5x0;
-	R2_R = R1_R + h7x0;
-	R1_R = h9x0;
+	R9_2 = R8_2 + h7x0;
+	R8_2 = R7_2 + h5x0;
+	R7_2 = R6_2 + h3x0;
+	R6_2 = R5_2 + h1x0;
+	R5_2 = R4_2 + h1x0 + h0 * x1;
+	R4_2 = R3_2 + h3x0;
+	R3_2 = R2_2 + h5x0;
+	R2_2 = R1_2 + h7x0;
+	R1_2 = h9x0;
+
+	return R10;
+}
+
+static double decimate2x_3(double x0, double x1)
+{
+	double h9x0 = h9 * x0;
+	double h7x0 = h7 * x0;
+	double h5x0 = h5 * x0;
+	double h3x0 = h3 * x0;
+	double h1x0 = h1 * x0;
+	double R10 = R9_3 + h9x0;
+
+	R9_3 = R8_3 + h7x0;
+	R8_3 = R7_3 + h5x0;
+	R7_3 = R6_3 + h3x0;
+	R6_3 = R5_3 + h1x0;
+	R5_3 = R4_3 + h1x0 + h0 * x1;
+	R4_3 = R3_3 + h3x0;
+	R3_3 = R2_3 + h5x0;
+	R2_3 = R1_3 + h7x0;
+	R1_3 = h9x0;
+
+	return R10;
+}
+
+static double decimate2x_4(double x0, double x1)
+{
+	double h9x0 = h9 * x0;
+	double h7x0 = h7 * x0;
+	double h5x0 = h5 * x0;
+	double h3x0 = h3 * x0;
+	double h1x0 = h1 * x0;
+	double R10 = R9_4 + h9x0;
+
+	R9_4 = R8_4 + h7x0;
+	R8_4 = R7_4 + h5x0;
+	R7_4 = R6_4 + h3x0;
+	R6_4 = R5_4 + h1x0;
+	R5_4 = R4_4 + h1x0 + h0 * x1;
+	R4_4 = R3_4 + h3x0;
+	R3_4 = R2_4 + h5x0;
+	R2_4 = R1_4 + h7x0;
+	R1_4 = h9x0;
 
 	return R10;
 }
@@ -579,31 +640,53 @@ static inline void processMixedSamplesAmigaPanning(uint32_t i, int16_t *out)
 	int32_t smp32;
 	double dPrng;
 
-	double dL = dMixBufferL[i];
-	double dR = dMixBufferR[i];
+	//double dL = dMixBufferL[i];
+	//double dR = dMixBufferR[i];
+	double d1 = dMixBuffer1[i];
+	double d2 = dMixBuffer2[i];
+	double d3 = dMixBuffer3[i];
+	double d4 = dMixBuffer4[i];
 
 	// normalize w/ phase-inversion (A500/A1200 has a phase-inverted audio signal)
-	dL *= NORM_FACTOR * (-INT16_MAX / (double)PAULA_VOICES);
-	dR *= NORM_FACTOR * (-INT16_MAX / (double)PAULA_VOICES);
+	d1 *= NORM_FACTOR * (-INT16_MAX / (double)PAULA_VOICES);
+	d2 *= NORM_FACTOR * (-INT16_MAX / (double)PAULA_VOICES);
+	d3 *= NORM_FACTOR * (-INT16_MAX / (double)PAULA_VOICES);
+	d4 *= NORM_FACTOR * (-INT16_MAX / (double)PAULA_VOICES);
 
 	// left channel - 1-bit triangular dithering (high-pass filtered)
 	dPrng = random32() * (0.5 / INT32_MAX); // -0.5..0.5
-	dL = (dL + dPrng) - dPrngStateL;
-	dPrngStateL = dPrng;
-	smp32 = (int32_t)dL;
+	d1 = (d1 + dPrng) - dPrngState1;
+	dPrngState1 = dPrng;
+	smp32 = (int32_t)d1;
 	CLAMP16(smp32);
 	out[0] = (int16_t)smp32;
 
 	// right channel - 1-bit triangular dithering (high-pass filtered)
 	dPrng = random32() * (0.5 / INT32_MAX); // -0.5..0.5
-	dR = (dR + dPrng) - dPrngStateR;
-	dPrngStateR = dPrng;
-	smp32 = (int32_t)dR;
+	d2 = (d2 + dPrng) - dPrngState2;
+	dPrngState2 = dPrng;
+	smp32 = (int32_t)d2;
 	CLAMP16(smp32);
 	out[1] = (int16_t)smp32;
+
+	// left channel - 1-bit triangular dithering (high-pass filtered)
+	dPrng = random32() * (0.5 / INT32_MAX); // -0.5..0.5
+	d3 = (d3 + dPrng) - dPrngState3;
+	dPrngState3 = dPrng;
+	smp32 = (int32_t)d3;
+	CLAMP16(smp32);
+	out[2] = (int16_t)smp32;
+
+	// right channel - 1-bit triangular dithering (high-pass filtered)
+	dPrng = random32() * (0.5 / INT32_MAX); // -0.5..0.5
+	d4 = (d4 + dPrng) - dPrngState4;
+	dPrngState4 = dPrng;
+	smp32 = (int32_t)d4;
+	CLAMP16(smp32);
+	out[3] = (int16_t)smp32;
 }
 
-static inline void processMixedSamples(uint32_t i, int16_t *out)
+/*static inline void processMixedSamples(uint32_t i, int16_t *out)
 {
 	int32_t smp32;
 	double dPrng;
@@ -638,41 +721,61 @@ static inline void processMixedSamples(uint32_t i, int16_t *out)
 	smp32 = (int32_t)dR;
 	CLAMP16(smp32);
 	out[1] = (int16_t)smp32;
-}
+}*/
 
 static inline void processMixedSamplesAmigaPanning_2x(uint32_t i, int16_t *out) // 2x oversampling
 {
 	int32_t smp32;
-	double dPrng, dL, dR;
+	double dPrng, d1, d2, d3, d4;
 
 	// 2x downsampling (decimation)
 	const uint32_t offset1 = (i << 1) + 0;
 	const uint32_t offset2 = (i << 1) + 1;
-	dL = decimate2x_L(dMixBufferL[offset1], dMixBufferL[offset2]);
-	dR = decimate2x_R(dMixBufferR[offset1], dMixBufferR[offset2]);
+	d1 = decimate2x_1(dMixBuffer1[offset1], dMixBuffer1[offset2]);
+	d2 = decimate2x_2(dMixBuffer2[offset1], dMixBuffer2[offset2]);
+	d3 = decimate2x_3(dMixBuffer3[offset1], dMixBuffer3[offset2]);
+	d4 = decimate2x_4(dMixBuffer4[offset1], dMixBuffer4[offset2]);
 
 	// normalize w/ phase-inversion (A500/A1200 has a phase-inverted audio signal)
-	dL *= NORM_FACTOR * (-INT16_MAX / (double)PAULA_VOICES);
-	dR *= NORM_FACTOR * (-INT16_MAX / (double)PAULA_VOICES);
+	d1 *= NORM_FACTOR * (-INT16_MAX / (double)PAULA_VOICES);
+	d2 *= NORM_FACTOR * (-INT16_MAX / (double)PAULA_VOICES);
+	d3 *= NORM_FACTOR * (-INT16_MAX / (double)PAULA_VOICES);
+	d4 *= NORM_FACTOR * (-INT16_MAX / (double)PAULA_VOICES);
 
 	// left channel - 1-bit triangular dithering (high-pass filtered)
 	dPrng = random32() * (0.5 / INT32_MAX); // -0.5..0.5
-	dL = (dL + dPrng) - dPrngStateL;
-	dPrngStateL = dPrng;
-	smp32 = (int32_t)dL;
+	d1 = (d1 + dPrng) - dPrngState1;
+	dPrngState1 = dPrng;
+	smp32 = (int32_t)d1;
 	CLAMP16(smp32);
 	out[0] = (int16_t)smp32;
 
 	// right channel - 1-bit triangular dithering (high-pass filtered)
 	dPrng = random32() * (0.5 / INT32_MAX); // -0.5..0.5
-	dR = (dR + dPrng) - dPrngStateR;
-	dPrngStateR = dPrng;
-	smp32 = (int32_t)dR;
+	d2 = (d2 + dPrng) - dPrngState2;
+	dPrngState2 = dPrng;
+	smp32 = (int32_t)d2;
 	CLAMP16(smp32);
 	out[1] = (int16_t)smp32;
+
+	// left channel - 1-bit triangular dithering (high-pass filtered)
+	dPrng = random32() * (0.5 / INT32_MAX); // -0.5..0.5
+	d3 = (d3 + dPrng) - dPrngState3;
+	dPrngState3 = dPrng;
+	smp32 = (int32_t)d3;
+	CLAMP16(smp32);
+	out[2] = (int16_t)smp32;
+
+	// right channel - 1-bit triangular dithering (high-pass filtered)
+	dPrng = random32() * (0.5 / INT32_MAX); // -0.5..0.5
+	d4 = (d4 + dPrng) - dPrngState4;
+	dPrngState4 = dPrng;
+	smp32 = (int32_t)d4;
+	CLAMP16(smp32);
+	out[3] = (int16_t)smp32;
 }
 
-static inline void processMixedSamples_2x(uint32_t i, int16_t *out) // 2x oversampling
+/*static inline void processMixedSamples_2x(uint32_t i, int16_t *out) // 2x oversampling
 {
 	int32_t smp32;
 	double dPrng, dL, dR;
@@ -710,18 +813,20 @@ static inline void processMixedSamples_2x(uint32_t i, int16_t *out) // 2x oversa
 	smp32 = (int32_t)dR;
 	CLAMP16(smp32);
 	out[1] = (int16_t)smp32;
-}
+}*/
 
 static void processFilters(uint32_t numSamples)
 {
-	double dOut[2];
+	double dOut[4];
 
 	if (useA1200LowPassFilter)
 	{
 		for (uint32_t i = 0; i < numSamples; i++)
 		{
-			dOut[0] = dMixBufferL[i];
-			dOut[1] = dMixBufferR[i];
+			dOut[0] = dMixBuffer1[i];
+			dOut[1] = dMixBuffer2[i];
+			dOut[2] = dMixBuffer3[i];
+			dOut[3] = dMixBuffer4[i];
 
 			// low-pass RC filter
 			RCLowPassFilterStereo(&filterLoA1200, dOut, dOut);
@@ -729,22 +834,28 @@ static void processFilters(uint32_t numSamples)
 			// high-pass RC filter
 			RCHighPassFilterStereo(&filterHiA1200, dOut, dOut);
 
-			dMixBufferL[i] = dOut[0];
-			dMixBufferR[i] = dOut[1];
+			dMixBuffer1[i] = dOut[0];
+			dMixBuffer2[i] = dOut[1];
+			dMixBuffer3[i] = dOut[2];
+			dMixBuffer4[i] = dOut[3];
 		}
 	}
 	else
 	{
 		for (uint32_t i = 0; i < numSamples; i++)
 		{
-			dOut[0] = dMixBufferL[i];
-			dOut[1] = dMixBufferR[i];
+			dOut[0] = dMixBuffer1[i];
+			dOut[1] = dMixBuffer2[i];
+			dOut[2] = dMixBuffer3[i];
+			dOut[3] = dMixBuffer4[i];
 
 			// high-pass RC filter
 			RCHighPassFilterStereo(&filterHiA1200, dOut, dOut);
 
-			dMixBufferL[i] = dOut[0];
-			dMixBufferR[i] = dOut[1];
+			dMixBuffer1[i] = dOut[0];
+			dMixBuffer2[i] = dOut[1];
+			dMixBuffer3[i] = dOut[2];
+			dMixBuffer4[i] = dOut[3];
 		}
 	}
 }
@@ -756,21 +867,23 @@ void paulaMixSamples(int16_t *target, uint32_t numSamples)
 	if (audio.oversamplingFlag) // 2x oversampling
 	{
 		// mix and filter channels (at 2x rate)
-		paulaGenerateSamples(dMixBufferL, dMixBufferR, numSamples*2);
+		paulaGenerateSamples(dMixBuffer1, dMixBuffer2, dMixBuffer3, dMixBuffer4, numSamples*2);
 		processFilters(numSamples*2);
 
 		// downsample, normalize and dither
-		int16_t out[2];
+		int16_t out[4];
 		int16_t *outStream = target;
-		if (audio.stereoSeparation == 100)
-		{
+		//if (audio.stereoSeparation == 100)
+		//{
 			for (uint32_t i = 0; i < numSamples; i++)
 			{
 				processMixedSamplesAmigaPanning_2x(i, out);
 				*outStream++ = out[0];
 				*outStream++ = out[1];
+				*outStream++ = out[2];
+				*outStream++ = out[3];
 			}
-		}
+		/*}
 		else
 		{
 			for (uint32_t i = 0; i < numSamples; i++)
@@ -778,35 +891,41 @@ void paulaMixSamples(int16_t *target, uint32_t numSamples)
 				processMixedSamples_2x(i, out);
 				*outStream++ = out[0];
 				*outStream++ = out[1];
+				*outStream++ = out[2];
+				*outStream++ = out[3];
 			}
-		}
+		}*/
 	}
 	else
 	{
-		paulaGenerateSamples(dMixBufferL, dMixBufferR, numSamples);
+		paulaGenerateSamples(dMixBuffer1, dMixBuffer2, dMixBuffer3, dMixBuffer4, numSamples);
 		processFilters(numSamples);
 
 		// normalize and dither
-		int16_t out[2];
+		int16_t out[4];
 		int16_t *outStream = target;
-		if (audio.stereoSeparation == 100)
-		{
+		//if (audio.stereoSeparation == 100)
+		//{
 			for (uint32_t i = 0; i < numSamples; i++)
 			{
 				processMixedSamplesAmigaPanning(i, out);
 				*outStream++ = out[0];
 				*outStream++ = out[1];
+				*outStream++ = out[2];
+				*outStream++ = out[3];
 			}
-		}
-		else
-		{
-			for (uint32_t i = 0; i < numSamples; i++)
-			{
-				processMixedSamples(i, out);
-				*outStream++ = out[0];
-				*outStream++ = out[1];
-			}
-		}
+		//}
+		//else
+		//{
+		//	for (uint32_t i = 0; i < numSamples; i++)
+		//	{
+		//		processMixedSamples(i, out);
+		//		*outStream++ = out[0];
+		//		*outStream++ = out[1];
+		//		*outStream++ = out[2];
+		//		*outStream++ = out[3];
+		//	}
+		//}
 	}
 }
 
@@ -821,7 +940,7 @@ void paulaOutputSamples(int16_t *stream, int32_t numSamples)
 
 	if (audio.pause)
 	{
-		memset(stream, 0, numSamples * 2 * sizeof (short));
+		memset(stream, 0, numSamples * 4 * sizeof (short));
 		return;
 	}
 
@@ -841,7 +960,7 @@ void paulaOutputSamples(int16_t *stream, int32_t numSamples)
 			samplesToMix = remainingTick;
 
 		paulaMixSamples(streamOut, samplesToMix);
-		streamOut += samplesToMix * 2;
+		streamOut += samplesToMix * 4;
 
 		samplesLeft -= samplesToMix;
 		audio.tickSampleCounter64 -= (int64_t)samplesToMix << 32;
@@ -943,10 +1062,12 @@ bool paulaInit(int32_t audioFrequency)
 	if (audio.oversamplingFlag)
 		maxSamplesToMix *= 2;
 
-	dMixBufferL = (double *)malloc(maxSamplesToMix * sizeof (double));
-	dMixBufferR = (double *)malloc(maxSamplesToMix * sizeof (double));
+	dMixBuffer1 = (double *)malloc(maxSamplesToMix * sizeof (double));
+	dMixBuffer2 = (double *)malloc(maxSamplesToMix * sizeof (double));
+	dMixBuffer3 = (double *)malloc(maxSamplesToMix * sizeof (double));
+	dMixBuffer4 = (double *)malloc(maxSamplesToMix * sizeof (double));
 
-	if (dMixBufferL == NULL || dMixBufferR == NULL)
+	if (dMixBuffer1 == NULL || dMixBuffer2 == NULL || dMixBuffer3 == NULL || dMixBuffer4 == NULL)
 	{
 		paulaClose();
 		return false;
@@ -963,15 +1084,27 @@ bool paulaInit(int32_t audioFrequency)
 
 void paulaClose(void)
 {
-	if (dMixBufferL != NULL)
+	if (dMixBuffer1 != NULL)
 	{
-		free(dMixBufferL);
-		dMixBufferL = NULL;
+		free(dMixBuffer1);
+		dMixBuffer1 = NULL;
 	}
 
-	if (dMixBufferR != NULL)
+	if (dMixBuffer2 != NULL)
 	{
-		free(dMixBufferR);
-		dMixBufferR = NULL;
+		free(dMixBuffer2);
+		dMixBuffer2 = NULL;
+	}
+
+	if (dMixBuffer3 != NULL)
+	{
+		free(dMixBuffer3);
+		dMixBuffer3 = NULL;
+	}
+
+	if (dMixBuffer4 != NULL)
+	{
+		free(dMixBuffer4);
+		dMixBuffer4 = NULL;
 	}
 }

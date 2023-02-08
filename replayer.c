@@ -1360,10 +1360,10 @@ static void writeWAVHeader(FILE *f, int32_t audioFrequency)
 	fwrite(&fmt, 4, 1, f);
 	l = 16; fwrite(&l, 4, 1, f);
 	w = 1; fwrite(&w, 2, 1, f);
-	w = 2; fwrite(&w, 2, 1, f);
+	w = 4; fwrite(&w, 2, 1, f);
 	l = audioFrequency; fwrite(&l, 4, 1, f);
-	l = audioFrequency*2*2; fwrite(&l, 4, 1, f);
-	w = 2*2; fwrite(&w, 2, 1, f);
+	l = (audioFrequency*16*4)/8; fwrite(&l, 4, 1, f);
+	w = 2*4; fwrite(&w, 2, 1, f);
 	w = 8*2; fwrite(&w, 2, 1, f);
 
 	// 8 bytes
@@ -1393,11 +1393,11 @@ static int32_t ahxGetFrame(int16_t *streamOut) // 8bb: returns bytes mixed
 	const int32_t samplesToMix = (audio.tickSampleCounter64 + UINT32_MAX) >> 32; // 8bb: ceil (rounded upwards)
 
 	paulaMixSamples(streamOut, samplesToMix);
-	streamOut += samplesToMix * 2;
+	streamOut += samplesToMix * 4;
 
 	audio.tickSampleCounter64 -= (int64_t)samplesToMix << 32;
 
-	return samplesToMix * 2 * sizeof (short);
+	return samplesToMix * 4 * sizeof (short);
 }
 
 // 8bb: masterVol = 0..256 (default = 256), stereoSeparation = 0..100 (percentage, default = 20)
@@ -1431,7 +1431,7 @@ bool ahxRecordWAVFromRAM(const uint8_t *data, const char *fileOut, int32_t subSo
 
 	const int32_t maxSamplesPerTick = (int32_t)ceil(audioFreq / amigaCIAPeriod2Hz(AHX_HIGHEST_CIA_PERIOD));
 
-	int16_t *outputBuffer = (int16_t *)malloc(maxSamplesPerTick * (2 * sizeof (int16_t)));
+	int16_t *outputBuffer = (int16_t *)malloc(maxSamplesPerTick * (4 * sizeof (int16_t)));
 	if (outputBuffer == NULL)
 	{
 		ahxFree();
@@ -1519,7 +1519,7 @@ bool ahxRecordWAV(const char *fileIn, const char *fileOut, int32_t subSong,
 
 	const int32_t maxSamplesPerTick = (int32_t)ceil(audioFreq / amigaCIAPeriod2Hz(AHX_HIGHEST_CIA_PERIOD));
 
-	int16_t *outputBuffer = (int16_t *)malloc(maxSamplesPerTick * (2 * sizeof (int16_t)));
+	int16_t *outputBuffer = (int16_t *)malloc(maxSamplesPerTick * (4 * sizeof (int16_t)));
 	if (outputBuffer == NULL)
 	{
 		ahxFree();
